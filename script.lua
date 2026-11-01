@@ -60912,6 +60912,7 @@ end
 		end
 
 		v127 = function()
+			if getAccurateBeeCount() == 0 then return end
 			crabPlatformSupport:Release()
 			local combat = cfg.combat
 			local bees = state.bees
@@ -61954,6 +61955,7 @@ end
 		end
 
 		v128 = function()
+			if getAccurateBeeCount() == 0 then return end
 			if not ((not cfg.puffshrooms.enabled or not findPuffshroom()) and (not cfg.sprouts.enabled or not findSprout())) then
 				return
 			end
@@ -65658,15 +65660,15 @@ end
 				"PlentyPlanter",
 			},
 		},
-		HatchEgg = function()
-			local honeycomb, v135
+		HatchEgg = function(progression, honeycomb, eggType)
+			local v135
+			honeycomb = honeycomb or (gameApi:Cache() and gameApi:Cache().Honeycomb) or {}
+			eggType = eggType or "Basic"
 
 			for k in pairs(honeycomb) do
 				v135 = nil
 				break
 			end
-
-			local eggType, progression
 
 			if not v135 then
 				local emptyCell
@@ -66898,6 +66900,56 @@ end
 		end
 	end
 
+		-- [INITIAL HATCH & ZERO-BEE SAFETY RUNNER]
+	local function ensureInitialBeeHatched()
+		local bc = getAccurateBeeCount()
+		if bc > 0 then return true end
+
+		logger.log("Zero bees detected! Starting Initial Bee Hatch Routine...")
+		reportStatus(1, "Hatching First Bee...")
+
+		-- Make sure hive is claimed
+		if not state.hive then
+			claimHive()
+		end
+
+		local now = os.clock()
+		while getAccurateBeeCount() == 0 and os.clock() - now < 30 do
+			task.wait(1)
+			pcall(function()
+				if remoteData and remoteData.Handle then
+					remoteData:Handle()
+				end
+			end)
+			if getAccurateBeeCount() > 0 then
+				break
+			end
+
+			-- Check if inventory has any egg
+			pcall(function()
+				local pData = gameApi:Cache()
+				local honeycomb = pData and pData.Honeycomb or {}
+				if pData and pData.Eggs then
+					for eggName, count in pairs(pData.Eggs) do
+						if type(count) == "number" and count > 0 and eggName:find("Egg") or eggName == "Basic" then
+							local cleanEgg = eggName:gsub("Egg$", ""):gsub("Bee$", "")
+							remoteData:HatchEgg(honeycomb, cleanEgg)
+							break
+						end
+					end
+				end
+			end)
+		end
+
+		local finalBc = getAccurateBeeCount()
+		if finalBc == 0 then
+			logger.warn("Waiting for initial bee to hatch before engaging monsters...")
+			return false
+		end
+		logger.log("Initial bee ready! Bee count: " .. tostring(finalBc))
+		return true
+	end
+
 	autofarmLoop = function()
 		while RunService.Heartbeat:Wait() do
 			if not state.stop and not state.fasttween then
@@ -66917,6 +66969,7 @@ end
 					end
 
 					closePopups()
+					if not ensureInitialBeeHatched() then return end
 					if cfg.autofarm.enabled and (followingTeam or cfg.autofarm.idlefieldloop and cfg.autofarm.stumpsmileyonly) then
 						-- Mobile spawning alts farm the main field instead of starting independent tasks.
 						if comboController.active or comboController.comboPriority then return end
