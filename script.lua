@@ -65661,102 +65661,91 @@ end
 			},
 		},
 		HatchEgg = function(progression, honeycomb, eggType)
-			local v135
-			honeycomb = honeycomb or (gameApi:Cache() and gameApi:Cache().Honeycomb) or {}
+			progression = progression or remoteData
 			eggType = eggType or "Basic"
+			local playerData = gameApi:Cache() or {}
+			honeycomb = honeycomb or playerData.Honeycomb or {}
 
-			for k in pairs(honeycomb) do
-				v135 = nil
+			-- Determine if honeycomb has any bees already
+			local hasExistingBees = false
+			for _ in pairs(honeycomb) do
+				hasExistingBees = true
 				break
 			end
 
-			if not v135 then
-				local emptyCell
+			local targetCell = nil
 
-				for i = 1, 10 do
-					for i2 = 1, 5 do
-						local hiveColumn = honeycomb["x" .. i2]
-						local isAdjacent = false
+			if hasExistingBees then
+				-- Find empty cell adjacent to existing bees
+				for col = 1, 5 do
+					for row = 1, 10 do
+						local hiveCell = state.hive and state.hive.Cells and state.hive.Cells:FindFirstChild("C" .. col .. "," .. row)
+						local isLocked = hiveCell and hiveCell.CellLocked.Value
+						local colData = honeycomb["x" .. col]
+						local cellOccupied = colData and colData["y" .. row]
 
-						if not hiveColumn or not hiveColumn["y" .. i] and not state.hive.Cells["C" .. i2 .. "," .. i].CellLocked.Value then
-							for i3 = -1, 1, 2 do
-								if not ((not hiveColumn or not hiveColumn["y" .. i + i3]) and (not (i2 < 5) or not honeycomb["x" .. i2 + 1] or not honeycomb["x" .. i2 + 1]["y" .. i]) and not (not not (i2 > 1) and not (not honeycomb["x" .. i2 - 1] or not honeycomb["x" .. i2 - 1]["y" .. i]))) then
+						if not cellOccupied and not isLocked then
+							local isAdjacent = false
+							for offset = -1, 1, 2 do
+								local adjacentY = colData and colData["y" .. (row + offset)]
+								local adjacentXNext = (col < 5) and honeycomb["x" .. (col + 1)] and honeycomb["x" .. (col + 1)]["y" .. row]
+								local adjacentXPrev = (col > 1) and honeycomb["x" .. (col - 1)] and honeycomb["x" .. (col - 1)]["y" .. row]
+								if adjacentY or adjacentXNext or adjacentXPrev then
 									isAdjacent = true
 									break
 								end
 							end
-
 							if isAdjacent then
-								emptyCell = { i2, i }
+								targetCell = { col, row }
 								break
 							end
 						end
 					end
-
-					if emptyCell then
-						logger.log("Hatching", eggType, "Bee at cell", emptyCell[1] .. ",", emptyCell[2])
-
-						if distanceTo(localPlayer.SpawnPos.Value.Position, true) > 9 then
-							goTo(localPlayer.SpawnPos.Value.Position, "Hive")
-							task.wait(0.5)
-						end
-
-						local eggName = eggType == "Basic" and eggType or eggType .. "Bee"
-						local ConstructHiveCellFromEgg, hatchOk, newHoneycomb, discoveredBees, eggUses = gameApi:Event("ConstructHiveCellFromEgg", emptyCell[1], emptyCell[2], eggName, 1, false)
-
-						if not hatchOk then
-							logger.warn("Failed to hatch", eggType, "Bee Egg")
-							error("return", 0)
-						else
-							gameApi:CacheSet({ "Eggs", eggName }, ConstructHiveCellFromEgg)
-							gameApi:CacheSet("Honeycomb", newHoneycomb)
-							gameApi:CacheSet("DiscoveredBees", discoveredBees)
-							gameApi:CacheSet({ "Totals", "EggUses" }, eggUses)
-							secureCall(gameApi.GateManager)
-							local bees = state.bees
-							claimHive()
-							updateAvailableFields(true)
-
-							if not (bees < 15) or not (state.bees >= 15) then
-								if not (not (bees < 5) or not (state.bees >= 5)) then
-									controls.bestbluefield.Set("Bamboo Field")
-									controls.bestredfield.Set("Strawberry Field")
-									controls.bestwhitefield.Set("Spider Field")
-								end
-							else
-								controls.bestbluefield.Set("Pine Tree Forest")
-								controls.bestredfield.Set("Rose Field")
-							end
-
-							progression.time = nil
-							task.wait(0.25)
-							error("return", 0)
-						end
-					end
+					if targetCell then break end
 				end
 			else
-				logger.log("Hatching", eggType, "Bee at cell 1, 1")
+				-- Hive has 0 bees, hatch at base cell (1, 1)
+				targetCell = { 1, 1 }
+			end
 
-				if distanceTo(localPlayer.SpawnPos.Value.Position, true) > 9 then
-					goTo(localPlayer.SpawnPos.Value.Position, "Hive")
-					task.wait(0.5)
+			if not targetCell then
+				targetCell = { 1, 1 }
+			end
+
+			logger.log("Hatching", eggType, "Bee at cell", targetCell[1] .. ", " .. targetCell[2])
+
+			if distanceTo(localPlayer.SpawnPos.Value.Position, true) > 9 then
+				goTo(localPlayer.SpawnPos.Value.Position, "Hive")
+				task.wait(0.5)
+			end
+
+			local eggName = (eggType == "Basic" or eggType == "RoyalJelly") and eggType or (eggType .. "Bee")
+			local ConstructHiveCellFromEgg, hatchOk, newHoneycomb, discoveredBees, eggUses = gameApi:Event("ConstructHiveCellFromEgg", targetCell[1], targetCell[2], eggName, 1, false)
+
+			if not hatchOk then
+				logger.warn("Failed to hatch", eggType, "Bee Egg")
+				error("return", 0)
+			else
+				gameApi:CacheSet({ "Eggs", eggName }, ConstructHiveCellFromEgg)
+				gameApi:CacheSet("Honeycomb", newHoneycomb)
+				gameApi:CacheSet("DiscoveredBees", discoveredBees)
+				gameApi:CacheSet({ "Totals", "EggUses" }, eggUses)
+				secureCall(gameApi.GateManager)
+				claimHive()
+				updateAvailableFields(true)
+
+				if state.bees >= 15 then
+					if controls.bestbluefield then controls.bestbluefield.Set("Pine Tree Forest") end
+					if controls.bestredfield then controls.bestredfield.Set("Rose Field") end
+				elseif state.bees >= 5 then
+					if controls.bestbluefield then controls.bestbluefield.Set("Bamboo Field") end
+					if controls.bestredfield then controls.bestredfield.Set("Strawberry Field") end
+					if controls.bestwhitefield then controls.bestwhitefield.Set("Spider Field") end
 				end
 
-				local eggName = eggType == "Basic" and eggType or eggType .. "Bee"
-				local ConstructHiveCellFromEgg, hatchOk, newHoneycomb, discoveredBees, eggUses = gameApi:Event("ConstructHiveCellFromEgg", 1, 1, eggName, 1, false)
-
-				if not hatchOk then
-					logger.warn("Failed to hatch", eggType, "Bee Egg")
-					error("return", 0)
-				else
-					gameApi:CacheSet({ "Eggs", eggName }, ConstructHiveCellFromEgg)
-					gameApi:CacheSet("Honeycomb", newHoneycomb)
-					gameApi:CacheSet("DiscoveredBees", discoveredBees)
-					gameApi:CacheSet({ "Totals", "EggUses" }, eggUses)
-					progression.time = nil
-					task.wait(0.25)
-					error("return", 0)
-				end
+				if progression then progression.time = nil end
+				task.wait(0.25)
+				error("return", 0)
 			end
 		end,
 		Handle = function(progression)
@@ -66905,10 +66894,10 @@ end
 		local bc = getAccurateBeeCount()
 		if bc > 0 then return true end
 
-		logger.log("Zero bees detected! Starting Initial Bee Hatch Routine...")
-		reportStatus(1, "Hatching First Bee...")
+		logger.log("0 Ong phát hiện! Đang tiến hành ấp con ong đầu tiên...")
+		reportStatus(1, "Ấp trứng ong đầu tiên...")
 
-		-- Make sure hive is claimed
+		-- Đảm bảo đã claim tổ ong
 		if not state.hive then
 			claimHive()
 		end
@@ -66916,37 +66905,67 @@ end
 		local now = os.clock()
 		while getAccurateBeeCount() == 0 and os.clock() - now < 30 do
 			task.wait(1)
+
+			-- 1. Nhập code tân thủ để lấy mật và trứng cơ bản
 			pcall(function()
-				if remoteData and remoteData.Handle then
-					remoteData:Handle()
+				local pData = gameApi:Cache()
+				local starterCodes = { "38217", "BeesBuzz123", "BopMaster", "Connoisseur", "Crawlers", "Nectar", "Roof", "Wax", "ClubBean" }
+				for _, promoCode in ipairs(starterCodes) do
+					local redeemed = false
+					if pData and pData.Codes then
+						for _, c in ipairs(pData.Codes) do
+							if string.lower(c) == string.lower(promoCode) then
+								redeemed = true
+								break
+							end
+						end
+					end
+					if not redeemed then
+						gameApi:Event("PromoCodeEvent", promoCode)
+						gameApi:CacheUpdate("Codes")
+						task.wait(0.3)
+					end
 				end
 			end)
-			if getAccurateBeeCount() > 0 then
-				break
-			end
 
-			-- Check if inventory has any egg
+			-- 2. Kiểm tra nếu có trứng trong túi thì ấp ngay vào cell (1, 1)
 			pcall(function()
 				local pData = gameApi:Cache()
 				local honeycomb = pData and pData.Honeycomb or {}
 				if pData and pData.Eggs then
 					for eggName, count in pairs(pData.Eggs) do
-						if type(count) == "number" and count > 0 and eggName:find("Egg") or eggName == "Basic" then
+						if type(count) == "number" and count > 0 and (eggName:find("Egg") or eggName == "Basic") then
 							local cleanEgg = eggName:gsub("Egg$", ""):gsub("Bee$", "")
 							remoteData:HatchEgg(honeycomb, cleanEgg)
-							break
+							return
 						end
 					end
 				end
+
+				-- 3. Nếu chưa có trứng nhưng có đủ mật thì mua Basic Egg
+				local eggPackage = { Category = "Eggs", Type = "Basic", Amount = 1 }
+				if gameApi:CanBuy(pData, nil, eggPackage) then
+					goTo(locations.BasicEggShop, "Basic Egg Shop")
+					task.wait(0.3)
+					if gameApi:Event("ItemPackageEvent", "Purchase", eggPackage) then
+						gameApi:CacheUpdate()
+						task.wait(0.3)
+						remoteData:HatchEgg(honeycomb, "Basic")
+					end
+				end
 			end)
+
+			if getAccurateBeeCount() > 0 then
+				break
+			end
 		end
 
 		local finalBc = getAccurateBeeCount()
 		if finalBc == 0 then
-			logger.warn("Waiting for initial bee to hatch before engaging monsters...")
+			logger.warn("Chờ ong nở trước khi ra farm hoặc đánh quái...")
 			return false
 		end
-		logger.log("Initial bee ready! Bee count: " .. tostring(finalBc))
+		logger.log("Ong đầu tiên đã nở thành công! Số lượng ong: " .. tostring(finalBc))
 		return true
 	end
 
