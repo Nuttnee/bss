@@ -9381,50 +9381,44 @@ end
 local function isDestinationAccessible(targetPos, label)
     if not targetPos then return true end
     local bees = getAccurateBeeCount()
-    
-    -- Check Bee Gates collision status
-    local gates = workspace:FindFirstChild("Gates")
-    if gates then
-        local g35 = gates:FindFirstChild("35 Bee Gate")
-        local g30 = gates:FindFirstChild("30 Bee Gate")
-        local g25 = gates:FindFirstChild("25 Bee Gate")
-        local g20 = gates:FindFirstChild("20 Bee Gate")
-        local g15 = gates:FindFirstChild("15 Bee Gate")
-        local g10 = gates:FindFirstChild("10 Bee Gate")
-        local g5 = gates:FindFirstChild("5 Bee Gate")
-        
-        -- High tier zone position checks
-        -- Zone 35 (Spirit Bear, Coconut Field, Pepper Patch)
-        if (targetPos.Z > 300 and targetPos.Y > 50) or (label and (string.find(label, "Coconut") or string.find(label, "Pepper") or string.find(label, "Petal"))) then
-            if bees < 35 and (g35 and g35:FindFirstChild("Door") and g35.Door.CanCollide) then
-                return false, "Requires 35 Bees (Have: " .. tostring(bees) .. ")"
-            end
-        end
-        -- Zone 25 (Mountain Top, Ace Badge, Dispenser)
-        if (targetPos.Y > 150) or (label and (string.find(label, "Mountain") or string.find(label, "Top") or string.find(label, "Ace"))) then
-            if bees < 25 and (g25 and g25:FindFirstChild("Door") and g25.Door.CanCollide) then
-                return false, "Requires 25 Bees (Have: " .. tostring(bees) .. ")"
-            end
-        end
-        -- Zone 15 (Pine Tree, Rose, Cactus, Moon Charm)
-        if label and (string.find(label, "Pine Tree") or string.find(label, "Rose") or string.find(label, "Cactus")) then
-            if bees < 15 and (g15 and g15:FindFirstChild("Door") and g15.Door.CanCollide) then
-                return false, "Requires 15 Bees (Have: " .. tostring(bees) .. ")"
-            end
-        end
-        -- Zone 10 (Pineapple, Stump)
-        if label and (string.find(label, "Pineapple") or string.find(label, "Stump")) then
-            if bees < 10 and (g10 and g10:FindFirstChild("Door") and g10.Door.CanCollide) then
-                return false, "Requires 10 Bees (Have: " .. tostring(bees) .. ")"
-            end
-        end
-        -- Zone 5 (Bamboo, Spider, Strawberry)
-        if label and (string.find(label, "Bamboo") or string.find(label, "Spider") or string.find(label, "Strawberry")) then
-            if bees < 5 and (g5 and g5:FindFirstChild("Door") and g5.Door.CanCollide) then
-                return false, "Requires 5 Bees (Have: " .. tostring(bees) .. ")"
-            end
+    local targetName = tostring(label or "")
+
+    -- Direct Field/Zone check by Bee requirements
+    -- Zone 35 (Spirit Bear, Coconut Field, Pepper Patch)
+    if string.find(targetName, "Coconut") or string.find(targetName, "Pepper") or string.find(targetName, "Petal") or (targetPos.Z > 300 and targetPos.Y > 50) then
+        if bees < 35 then
+            return false, "Requires 35 Bees (Have: " .. tostring(bees) .. ")"
         end
     end
+
+    -- Zone 25 (Mountain Top Field, Ace Badge, Ant Challenge higher tier)
+    if string.find(targetName, "Mountain Top") or (string.find(targetName, "Mountain") and not string.find(targetName, "Pass")) or (targetPos.Y > 150) then
+        if bees < 25 then
+            return false, "Requires 25 Bees (Have: " .. tostring(bees) .. ")"
+        end
+    end
+
+    -- Zone 15 (Pine Tree Forest, Rose Field, Cactus Field, Werewolf Cave, Moon Charm)
+    if string.find(targetName, "Pine Tree") or string.find(targetName, "Rose") or string.find(targetName, "Cactus") or string.find(targetName, "Werewolf") then
+        if bees < 15 then
+            return false, "Requires 15 Bees (Have: " .. tostring(bees) .. ")"
+        end
+    end
+
+    -- Zone 10 (Pineapple Patch, Stump Field)
+    if string.find(targetName, "Pineapple") or string.find(targetName, "Stump") then
+        if bees < 10 then
+            return false, "Requires 10 Bees (Have: " .. tostring(bees) .. ")"
+        end
+    end
+
+    -- Zone 5 (Bamboo Field, Spider Field, Strawberry Field)
+    if string.find(targetName, "Bamboo") or string.find(targetName, "Spider") or string.find(targetName, "Strawberry") then
+        if bees < 5 then
+            return false, "Requires 5 Bees (Have: " .. tostring(bees) .. ")"
+        end
+    end
+
     return true
 end
 
@@ -9584,7 +9578,33 @@ local function travelTo(to, stepLabel)
 			local p,c,size=root.Position,field.Position,field.Size
 			return p.Y>=c.Y+size.Y/2-3 and p.Y<=c.Y+size.Y/2+18 and (getFieldAt(p)==field or fieldPositionPolicy:InsideGuardedField(field,p))
 		end
-		if arrived() then return true end
+				local canGo, reason = isDestinationAccessible(field.Position, field.Name)
+		if not canGo then
+			-- Downgrade field to an available safe field if current field is locked
+			local safeField = "Sunflower Field"
+			local bees = getAccurateBeeCount()
+			if bees >= 15 then safeField = "Pine Tree Forest"
+			elseif bees >= 10 then safeField = "Pineapple Patch"
+			elseif bees >= 5 then safeField = "Bamboo Field"
+			else
+				-- Zone 0 safe fields
+				if cfg.autofarm and cfg.autofarm.field1 == "Blue Flower Field" then
+					safeField = "Blue Flower Field"
+				elseif cfg.autofarm and cfg.autofarm.field1 == "Mushroom Field" then
+					safeField = "Mushroom Field"
+				else
+					safeField = "Sunflower Field"
+				end
+			end
+			logger.warn("[Zone Safety] Blocked access to", field.Name, reason, "-> Switching to", safeField)
+			setField(safeField)
+			cfg.autofarm.field1 = safeField
+			if controls and controls.Field then
+				controls.Field.SetValue(safeField)
+			end
+			field = currentField
+		end
+if arrived() then return true end
 		if state.fasttween or state.stop then error("return",0) end
 		state.stopface=true
 		if UserInputService.MouseIcon=="rbxasset://textures/MouseLockedCursor.png" then
@@ -71686,7 +71706,22 @@ Are you sure you want to enable it?]])
 					mergeTable(cfg, clonedData)
 
 					-- Update state.config and save file
-					state.config = selectedTeam
+					
+					-- Dynamic field safety adjustment based on current bee count
+					local currentBees = getAccurateBeeCount and getAccurateBeeCount() or (state.bees or 0)
+					if currentBees < 15 and (cfg.autofarm.field1 == "Pine Tree Forest" or cfg.autofarm.field1 == "Rose Field" or cfg.autofarm.field1 == "Cactus Field") then
+						local fallback = "Blue Flower Field"
+						if currentBees >= 10 then fallback = "Pineapple Patch"
+						elseif currentBees >= 5 then fallback = "Bamboo Field"
+						end
+						cfg.autofarm.field1 = fallback
+						clonedData.autofarm.field1 = fallback
+						if controls and controls.Field then
+							controls.Field.SetValue(fallback)
+						end
+						logger.log("Ong ch?a ?? 15 (hi?n c?: " .. tostring(currentBees) .. "). T? ??ng chuy?n field t?m th?i sang: " .. fallback)
+					end
+state.config = selectedTeam
 					writefile("atlas-" .. localPlayer.Name .. ".json", selectedTeam .. ".json")
 					writefile("atlas/" .. selectedTeam .. ".json", HttpService:JSONEncode(clonedData))
 
